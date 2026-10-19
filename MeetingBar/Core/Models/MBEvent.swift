@@ -126,7 +126,7 @@ public struct MBEvent: Identifiable, Hashable, Sendable {
         for linkField in linkFields {
             if var detectedLink = detectMeetingLink(linkField) {
                 if detectedLink.service == .meet,
-                   let authAccount = attendees.first(where: { $0.isCurrentUser })?.email ?? calendar.email,
+                   let authAccount = googleAuthAccount(),
                    let urlEncodedAccount = authAccount.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
                     detectedLink.url = URL(string: (detectedLink.url.absoluteString) + "?authuser=\(urlEncodedAccount)")!
                 }
@@ -134,6 +134,19 @@ public struct MBEvent: Identifiable, Hashable, Sendable {
                 break
             }
         }
+    }
+
+    /// Picks the Google account that should open a Meet link.
+    ///
+    /// The calendar owner wins: a calendar shared into another account (e.g. a work calendar
+    /// subscribed in a private Google account) has its owner's email as the Google calendar ID
+    /// and, by default, as the calendar title. Both the current-user attendee and the calendar
+    /// source email point to the account the calendar is synced through, which is the wrong one.
+    private func googleAuthAccount() -> String? {
+        let ownerEmail = [calendar.id, calendar.title].first(where: isPersonalGoogleAccountEmail)
+        return ownerEmail
+            ?? attendees.first(where: { $0.isCurrentUser })?.email
+            ?? calendar.email
     }
 
     func emailAttendees() {
@@ -185,4 +198,12 @@ func getEventDateString(_ event: MBEvent) -> String {
     let eventDurationMinutes = String(Int(event.endDate.timeIntervalSince(event.startDate) / 60))
     let durationTitle = "status_bar_submenu_duration_all_day".loco(eventStartTime, eventEndTime, eventDurationMinutes)
     return durationTitle
+}
+
+/// Secondary, imported and holiday Google calendars have IDs like `abc@group.calendar.google.com`,
+/// which are not accounts a browser can sign in with.
+func isPersonalGoogleAccountEmail(_ value: String) -> Bool {
+    let parts = value.split(separator: "@")
+    guard parts.count == 2, !parts[0].isEmpty, parts[1].contains(".") else { return false }
+    return !parts[1].lowercased().hasSuffix("calendar.google.com")
 }
